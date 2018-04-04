@@ -17,6 +17,12 @@ namespace GZipTest
                 return;
             }
 
+            if (!File.Exists(args[1]))
+            {
+                Console.WriteLine($"File '{args[1]}' doesn't exists");
+                return;
+            }
+
             var gzip = new GZip();
             switch (args[0])
             {

@@ -57,17 +57,17 @@ namespace GZipTest
 
             var writerThread = new Thread(() =>
             {
-                using (var fileStream = new FileStream(output, FileMode.Create, FileAccess.Write))
+                using (var writer = new FileStream(output, FileMode.Create, FileAccess.Write))
                 {
-                    fileStream.Write(BitConverter.GetBytes(numberOfChunks), 0, sizeof(int));
+                    writer.Write(BitConverter.GetBytes(numberOfChunks), 0, sizeof(int));
                     while (numberOfChunks > 0)
                     {
                         var compressed = compressedChunksQueue.Dequeue();
 
-                        fileStream.Write(BitConverter.GetBytes(compressed.Number), 0, sizeof(int));
-                        fileStream.Write(BitConverter.GetBytes(compressed.InitialSize), 0, sizeof(int));
-                        fileStream.Write(BitConverter.GetBytes(compressed.Size), 0, sizeof(int));
-                        fileStream.Write(compressed.Data, 0, compressed.Size);
+                        writer.Write(BitConverter.GetBytes(compressed.Number), 0, sizeof(int));
+                        writer.Write(BitConverter.GetBytes(compressed.InitialSize), 0, sizeof(int));
+                        writer.Write(BitConverter.GetBytes(compressed.Size), 0, sizeof(int));
+                        writer.Write(compressed.Data, 0, compressed.Size);
 
                         ShowProgress();
 
@@ -138,13 +138,13 @@ namespace GZipTest
 
                 var writerThread = new Thread(() =>
                 {
-                    using (var writer = new FileStream(output, FileMode.OpenOrCreate, FileAccess.Write))
+                    using (var writer = new FileStream(output, FileMode.Create, FileAccess.Write))
                     {
                         while (numberOfChunks > 0)
                         {
                             var chunk = chunksQueue.Dequeue();
 
-                            writer.Seek(chunk.Number * chunkSize, SeekOrigin.Begin);
+                            writer.Seek((long)chunk.Number * chunkSize, SeekOrigin.Begin);
                             writer.Write(chunk.Data, 0, chunk.Size);
 
                             ShowProgress();
