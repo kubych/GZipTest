@@ -1,4 +1,6 @@
-﻿using System;
+﻿using GZipTest.CommandDatas;
+using GZipTest.Commands;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -23,17 +25,18 @@ namespace GZipTest
                 return;
             }
 
-            var gzip = new GZip();
             switch (args[0])
             {
                 case "compress":
+                    var compress = new CatchExceptionCommandDecorator<CompressCommandData>(new CompressCommand());
                     Console.WriteLine("Comressing...");
-                    gzip.Compress(args[1], args[2]);
+                    compress.Execute(new CompressCommandData { InputFileName = args[1], OutputFileName = args[2] });
                     break;
 
                 case "decompress":
+                    var decompress = new CatchExceptionCommandDecorator<DecompressCommandData>(new DecompressCommand());
                     Console.WriteLine("Decompressing...");
-                    gzip.Decompress(args[1], args[2]);
+                    decompress.Execute(new DecompressCommandData { InputFileName = args[1], OutputFileName = args[2] });
                     break;
 
                 default:
