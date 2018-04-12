@@ -17,6 +17,7 @@ namespace GZipTest.Commands
 
         private ThreadSafeQueue<Chunk> chunksQueue;
         private ThreadSafeQueue<CompressedChunk> compressedChunksQueue;
+        private List<Thread> threads;
 
         private int numberOfChunks;
         private int totalNumberOfChunks;
@@ -30,18 +31,58 @@ namespace GZipTest.Commands
 
             chunksQueue = new ThreadSafeQueue<Chunk>(this.numberOfThreads);
             compressedChunksQueue = new ThreadSafeQueue<CompressedChunk>(this.numberOfThreads);
+            threads = new List<Thread>();
         }
 
         public void Execute(CompressCommandData commandData)
         {
+            if (!File.Exists(commandData.InputFileName))
+                throw new InvalidOperationException($"File '{commandData.InputFileName}' doesn't exists");
             var fileInfo = new FileInfo(commandData.InputFileName);
             numberOfChunks = (int)Math.Ceiling((decimal)fileInfo.Length / chunkSize);
             totalNumberOfChunks = numberOfChunks;
             waitHandler = new ManualResetEvent(false);
 
+            using (var fileStream = new FileStream(commandData.InputFileName, FileMode.Open, FileAccess.Read))
+            {
+                var buffer = new byte[chunkSize];
+                var count = 0;
+                var bytesRead = fileStream.Read(buffer, 0, chunkSize);
+                var chunk = new Chunk
+                {
+                    Number = count,
+                    Size = bytesRead,
+                    Data = buffer
+                };
+                if (!chunk.IsCompressible)
+                    throw new InvalidOperationException($"File '{commandData.InputFileName}' cannot be compressed effectivly");
+                CreateCompressionThreads(commandData);
+                CreateWriterThread(commandData);
+                StartThreads();
+                while (bytesRead > 0)
+                {
+                    chunk = new Chunk
+                    {
+                        Number = count,
+                        Size = bytesRead,
+                        Data = buffer
+                    };
+                    chunksQueue.Enqueue(chunk);
+                    count++;
+                    buffer = new byte[chunkSize];
+                    bytesRead = fileStream.Read(buffer, 0, chunkSize);
+                }
+            }
+
+            waitHandler.WaitOne();
+            Console.WriteLine($"\rDone.");
+        }
+
+        private void CreateCompressionThreads(CompressCommandData commandData)
+        {
             for (var i = 0; i < numberOfThreads; i++)
             {
-                var thread = new Thread((mainThread) =>
+                threads.Add(new Thread((mainThread) =>
                 {
                     try
                     {
@@ -54,24 +95,27 @@ namespace GZipTest.Commands
                     }
                     catch (Exception e)
                     {
-                        commandData.Error = "Error during compressing a chunk of data in thread";
+                        commandData.Error = "Error during compression of a chunk of data in thread";
                         commandData.Exception = e;
                         ((Thread)mainThread).Interrupt();
                     }
                 })
                 {
                     IsBackground = true
-                };
-                thread.Start(Thread.CurrentThread);
+                });
             }
+        }
 
-            var writerThread = new Thread((mainThread) =>
+        private void CreateWriterThread(CompressCommandData commandData)
+        {
+            threads.Add(new Thread((mainThread) =>
             {
                 try
                 {
                     using (var writer = new FileStream(commandData.OutputFileName, FileMode.Create, FileAccess.Write))
                     {
                         writer.Write(BitConverter.GetBytes(numberOfChunks), 0, sizeof(int));
+                        writer.Write(BitConverter.GetBytes(chunkSize), 0, sizeof(int));
                         while (numberOfChunks > 0)
                         {
                             var compressed = compressedChunksQueue.Dequeue();
@@ -97,31 +141,13 @@ namespace GZipTest.Commands
             })
             {
                 IsBackground = true
-            };
-            writerThread.Start(Thread.CurrentThread);
+            });
+        }
 
-            using (var fileStream = new FileStream(commandData.InputFileName, FileMode.Open, FileAccess.Read))
-            {
-                var buffer = new byte[chunkSize];
-                var count = 0;
-                var bytesRead = fileStream.Read(buffer, 0, chunkSize);
-                while (bytesRead > 0)
-                {
-                    var chunk = new Chunk
-                    {
-                        Number = count,
-                        Size = bytesRead,
-                        Data = buffer
-                    };
-                    chunksQueue.Enqueue(chunk);
-                    count++;
-                    buffer = new byte[chunkSize];
-                    bytesRead = fileStream.Read(buffer, 0, chunkSize);
-                }
-            }
-
-            waitHandler.WaitOne();
-            Console.WriteLine($"\rDone.");
+        private void StartThreads()
+        {
+            foreach (var thread in threads)
+                thread.Start(Thread.CurrentThread);
         }
 
         private void ShowProgress()

@@ -12,29 +12,29 @@ namespace GZipTest.Commands
 {
     public class DecompressCommand : ICommand<DecompressCommandData>
     {
-        private readonly int chunkSize;
+        private int chunkSize;
         private readonly int numberOfThreads;
 
         private ThreadSafeQueue<Chunk> chunksQueue;
         private ThreadSafeQueue<CompressedChunk> compressedChunksQueue;
+        private List<Thread> threads;
 
         private int numberOfChunks;
         private int totalNumberOfChunks;
         private EventWaitHandle waitHandler;
-        private Exception innerException;
 
         public DecompressCommand()
         {
             numberOfThreads = Environment.ProcessorCount;
-            if (!int.TryParse(ConfigurationManager.AppSettings["chunkSize"], out chunkSize))
-                chunkSize = 1024 * 64;
-
             chunksQueue = new ThreadSafeQueue<Chunk>(this.numberOfThreads);
             compressedChunksQueue = new ThreadSafeQueue<CompressedChunk>(this.numberOfThreads);
+            threads = new List<Thread>();
         }
 
         public void Execute(DecompressCommandData commandData)
         {
+            if (!File.Exists(commandData.InputFileName))
+                throw new InvalidOperationException($"File '{commandData.InputFileName}' doesn't exists");
             using (var fileStream = new FileStream(commandData.InputFileName, FileMode.Open, FileAccess.Read))
             {
                 var size = sizeof(int);
@@ -42,71 +42,25 @@ namespace GZipTest.Commands
                 var bytesRead = fileStream.Read(buffer, 0, size);
                 if (bytesRead == 0)
                     return;
-
                 numberOfChunks = BitConverter.ToInt32(buffer, 0);
                 totalNumberOfChunks = numberOfChunks;
+
+                bytesRead = fileStream.Read(buffer, 0, size);
+                if (bytesRead == 0)
+                    return;
+                chunkSize = BitConverter.ToInt32(buffer, 0);
+
                 waitHandler = new ManualResetEvent(false);
 
-                for (var i = 0; i < numberOfThreads; i++)
-                {
-                    var thread = new Thread((mainThread) =>
-                    {
-                        try
-                        {
-                            while (numberOfChunks > 0)
-                            {
-                                var compressed = compressedChunksQueue.Dequeue();
-                                var decompressed = compressed.Decompress();
-                                chunksQueue.Enqueue(decompressed);
-                            }
-                        }
-                        catch (Exception e)
-                        {
-                            commandData.Error = "Error during decompressing a chunk of data in thread";
-                            commandData.Exception = e;
-                            ((Thread)mainThread).Interrupt();
-                        }
-                    })
-                    {
-                        IsBackground = true
-                    };
-                    thread.Start(Thread.CurrentThread);
-                }
-
-                var writerThread = new Thread((mainThread) =>
-                {
-                    try
-                    {
-                        using (var writer = new FileStream(commandData.OutputFileName, FileMode.Create, FileAccess.Write))
-                        {
-                            while (numberOfChunks > 0)
-                            {
-                                var chunk = chunksQueue.Dequeue();
-
-                                writer.Seek((long)chunk.Number * chunkSize, SeekOrigin.Begin);
-                                writer.Write(chunk.Data, 0, chunk.Size);
-
-                                ShowProgress();
-
-                                if (Interlocked.Decrement(ref numberOfChunks) == 0)
-                                    waitHandler.Set();
-                            }
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        commandData.Error = "Error during writing to output file";
-                        commandData.Exception = e;
-                        ((Thread)mainThread).Interrupt();
-                    }
-                })
-                {
-                    IsBackground = true
-                };
-                writerThread.Start(Thread.CurrentThread);
 
                 var headerBuffer = new byte[3 * size];
                 bytesRead = fileStream.Read(headerBuffer, 0, 3 * size);
+                if (bytesRead > 0)
+                {
+                    CreateDecompressionThreads(commandData);
+                    CreateWriterThread(commandData);
+                    StartThreads();
+                }
 
                 while (bytesRead > 0)
                 {
@@ -130,6 +84,74 @@ namespace GZipTest.Commands
 
             waitHandler.WaitOne();
             Console.WriteLine($"\rDone.");
+        }
+
+        private void CreateDecompressionThreads(DecompressCommandData commandData)
+        {
+            for (var i = 0; i < numberOfThreads; i++)
+            {
+                threads.Add(new Thread((mainThread) =>
+                {
+                    try
+                    {
+                        while (numberOfChunks > 0)
+                        {
+                            var compressed = compressedChunksQueue.Dequeue();
+                            var decompressed = compressed.Decompress();
+                            chunksQueue.Enqueue(decompressed);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        commandData.Error = "Error during decompression of a chunk of data in thread";
+                        commandData.Exception = e;
+                        ((Thread)mainThread).Interrupt();
+                    }
+                })
+                {
+                    IsBackground = true
+                });
+            }
+        }
+
+        private void CreateWriterThread(DecompressCommandData commandData)
+        {
+            threads.Add(new Thread((mainThread) =>
+            {
+                try
+                {
+                    using (var writer = new FileStream(commandData.OutputFileName, FileMode.Create, FileAccess.Write))
+                    {
+                        while (numberOfChunks > 0)
+                        {
+                            var chunk = chunksQueue.Dequeue();
+
+                            writer.Seek((long)chunk.Number * chunkSize, SeekOrigin.Begin);
+                            writer.Write(chunk.Data, 0, chunk.Size);
+
+                            ShowProgress();
+
+                            if (Interlocked.Decrement(ref numberOfChunks) == 0)
+                                waitHandler.Set();
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    commandData.Error = "Error during writing to output file";
+                    commandData.Exception = e;
+                    ((Thread)mainThread).Interrupt();
+                }
+            })
+            {
+                IsBackground = true
+            });
+        }
+
+        private void StartThreads()
+        {
+            foreach (var thread in threads)
+                thread.Start(Thread.CurrentThread);
         }
 
         private void ShowProgress()

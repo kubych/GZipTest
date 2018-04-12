@@ -19,24 +19,23 @@ namespace GZipTest
                 return;
             }
 
-            if (!File.Exists(args[1]))
-            {
-                Console.WriteLine($"File '{args[1]}' doesn't exists");
-                return;
-            }
-
             switch (args[0])
             {
                 case "compress":
                     var compress = new CatchExceptionCommandDecorator<CompressCommandData>(new CompressCommand());
-                    Console.WriteLine("Comressing...");
+                    //var compress = new CatchExceptionCommandDecorator<CompressInSingleThreadCommandData>(new CompressInSingleThreadCommand());
                     compress.Execute(new CompressCommandData { InputFileName = args[1], OutputFileName = args[2] });
                     break;
 
                 case "decompress":
                     var decompress = new CatchExceptionCommandDecorator<DecompressCommandData>(new DecompressCommand());
-                    Console.WriteLine("Decompressing...");
                     decompress.Execute(new DecompressCommandData { InputFileName = args[1], OutputFileName = args[2] });
+                    break;
+
+                case "create":
+                    var create = new CatchExceptionCommandDecorator<CreateFileCommandData>(new CreateFileCommand());
+                    Console.WriteLine("Creating file...");
+                    create.Execute(new CreateFileCommandData { FileName = args[1], BlockSize = 1024, Size = 1024 * 1024 * 1024 });
                     break;
 
                 default:

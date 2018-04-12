@@ -34,5 +34,14 @@ namespace GZipTest.Models
 
             return compressed;
         }
+
+        public bool IsCompressible
+        {
+            get
+            {
+                var compressed = Compress();
+                return Size > compressed.Size;
+            }
+        }
     }
 }

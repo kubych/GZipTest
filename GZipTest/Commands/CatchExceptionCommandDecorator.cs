@@ -36,6 +36,10 @@ namespace GZipTest.Commands
                     Output(GenericErrorMessage, e);
                 }
             }
+            catch (InvalidOperationException e)
+            {
+                Output(e.Message, null);
+            }
             catch (Exception e)
             {
                 Output(GenericErrorMessage, e);
@@ -44,9 +48,12 @@ namespace GZipTest.Commands
 
         private void Output(string message, Exception e)
         {
-            Console.WriteLine($"\r[Error] {message}");
-            Console.WriteLine($"Exception: '{e.Message}'");
-            Console.WriteLine($"StackTrace: '{e.StackTrace}");
+            Console.WriteLine($"\r{message}");
+            if (e != null)
+            {
+                Console.WriteLine($"Exception: '{e.Message}'");
+                Console.WriteLine($"StackTrace: '{e.StackTrace}");
+            }
         }
     }
 }
